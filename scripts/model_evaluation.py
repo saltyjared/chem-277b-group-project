@@ -2,6 +2,8 @@ from torch_geometric import Data
 import torch_geometric
 import torch
 import numpy as np
+from sklearn.model_selection import KFold
+from typing import List, Dict, Tuple, Callable
 
 def normalize_tensor(tensor: torch.Tensor) -> torch.Tensor:
     """Normalize a tensor using min-max normalization."""
@@ -75,3 +77,66 @@ def evaluate_model(model, dataset: torch_geometric.data.Dataset):
 
     average_error = total_error / num_samples
     return average_error
+
+
+def kfold_cross_validation(
+    graph_data_list: List[Data],
+    model_class: Callable,
+    model_params: Dict,
+    train_fn: Callable,
+    n_splits: int = 5,
+    random_state: int = 42,
+    verbose: bool = True
+) -> Dict:
+    """
+    Perform k-fold cross-validation on graph data.
+
+    """
+    kfold = KFold(n_splits=n_splits, shuffle=True, random_state=random_state)
+    fold_scores = []
+    fold_models = []
+    
+    indices = np.arange(len(graph_data_list))
+    
+    for fold_idx, (train_indices, val_indices) in enumerate(kfold.split(indices)):
+        if verbose:
+            print(f"\n{'='*50}")
+            print(f"Fold {fold_idx + 1}/{n_splits}")
+            print(f"{'='*50}")
+        
+        train_data = [graph_data_list[i] for i in train_indices]
+        val_data = [graph_data_list[i] for i in val_indices]
+        
+        if verbose:
+            print(f"Train size: {len(train_data)}, Validation size: {len(val_data)}")
+        
+        # Initialize model for this fold
+        model = model_class(**model_params)
+        
+        trained_model, metrics = train_fn(model, train_data, val_data)
+        fold_models.append(trained_model)
+        
+        val_score = evaluate_model(trained_model, val_data)
+        fold_scores.append(val_score)
+        
+        if verbose:
+            print(f"Validation Score (MAE): {val_score:.6f}")
+    
+    # Calculate statistics
+    mean_score = np.mean(fold_scores)
+    std_score = np.std(fold_scores)
+    
+    if verbose:
+        print(f"\n{'='*50}")
+        print(f"Cross-Validation Results")
+        print(f"{'='*50}")
+        print(f"Mean Score: {mean_score:.6f}")
+        print(f"Std Score: {std_score:.6f}")
+        print(f"All Fold Scores: {[f'{s:.6f}' for s in fold_scores]}")
+    
+    return {
+        'fold_scores': fold_scores,
+        'mean_score': mean_score,
+        'std_score': std_score,
+        'fold_models': fold_models
+    }
