@@ -90,8 +90,34 @@ def kfold_cross_validation(
 ) -> Dict:
     """
     Perform k-fold cross-validation on graph data.
-
+    
     """
+
+    def clone_with_batch(data: Data) -> Data:
+        """
+        Return a Data object that explicitly owns a batch attribute which
+        matches the number of nodes. This prevents KeyError: 'batch' when
+        single-graph samples are passed directly into models that expect
+        data.batch.
+        """
+        batch_attr = getattr(data, 'batch', None)
+        if batch_attr is not None and batch_attr.numel() == data.x.size(0):
+            return data
+
+        device = data.x.device
+        batch_tensor = torch.zeros(data.x.size(0), dtype=torch.long, device=device)
+
+        cloned = Data(
+            x=data.x,
+            edge_index=data.edge_index,
+            y=data.y,
+            batch=batch_tensor
+        )
+        for key in data.keys():
+            if key not in ['x', 'edge_index', 'y', 'batch']:
+                cloned[key] = data[key]
+        return cloned
+
     kfold = KFold(n_splits=n_splits, shuffle=True, random_state=random_state)
     fold_scores = []
     fold_models = []
@@ -105,7 +131,7 @@ def kfold_cross_validation(
             print(f"{'='*50}")
         
         train_data = [graph_data_list[i] for i in train_indices]
-        val_data = [graph_data_list[i] for i in val_indices]
+        val_data = [clone_with_batch(graph_data_list[i]) for i in val_indices]
         
         if verbose:
             print(f"Train size: {len(train_data)}, Validation size: {len(val_data)}")
