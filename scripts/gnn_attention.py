@@ -1,7 +1,7 @@
 
 import os
 
-# BLAS conflicts
+# BLAS conflicts on macOS
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["MKL_NUM_THREADS"] = "1"
@@ -52,6 +52,7 @@ class LatticePlainDataset(Dataset):
             if A.shape != (self.N, self.N):
                 raise ValueError(f"Inconsistent connectivity matrix shape: {A.shape}, expected {(self.N, self.N)}")
 
+            # adjacency with self-loops
             A_with_self = A.copy()
             np.fill_diagonal(A_with_self, 1.0)
 
@@ -81,6 +82,7 @@ def lattice_collate(batch):
     y = torch.stack(ys, dim=0)  # [B, num_targets]
     return A, X, y
 
+# Graph attention
 
 class MultiHeadGraphAttention(nn.Module):
     """
@@ -88,7 +90,7 @@ class MultiHeadGraphAttention(nn.Module):
 
     Input:
         X: [B, N, F_in]
-        A: [B, N, N] (0/1)
+        A: [B, N, N] (0/1; 1 means "can attend")
     Output:
         X_out: [B, N, F_out]
     """
@@ -126,18 +128,25 @@ class MultiHeadGraphAttention(nn.Module):
         K = K.view(B, N, h, d_k).transpose(1, 2)  # [B, h, N, d_k]
         V = V.view(B, N, h, d_k).transpose(1, 2)  # [B, h, N, d_k]
 
+        # attention scores
         scores = torch.matmul(Q, K.transpose(-2, -1)) / math.sqrt(d_k)
 
-        A_expanded = A.unsqueeze(1) 
-        mask = (A_expanded <= 0)  
+        # mask using adjacency: where A == 0, set score to large negative
+        # expand A to [B, 1, N, N]
+        A_expanded = A.unsqueeze(1)  # [B, 1, N, N]
+        mask = (A_expanded <= 0)  # True where we should mask
         scores = scores.masked_fill(mask, -1e9)
 
-        attn = torch.softmax(scores, dim=-1) 
-       
+        attn = torch.softmax(scores, dim=-1)  # [B, h, N, N]
+        attn = self.dropout(attn)
+
+        # weighted sum of V: [B, h, N, d_k]
         out = torch.matmul(attn, V)
 
+        # merge heads: [B, N, h * d_k]
         out = out.transpose(1, 2).contiguous().view(B, N, h * d_k)
 
+        # final linear
         out = self.out_proj(out)  # [B, N, out_dim]
         return out
 
@@ -173,6 +182,7 @@ class AttentionGNN(nn.Module):
         self.activation = nn.ReLU()
         self.dropout = nn.Dropout(dropout)
 
+        # graph-level pooling: mean over nodes
         self.readout_mlp = nn.Sequential(
             nn.Linear(hidden_dim, hidden_dim),
             nn.ReLU(),
@@ -187,13 +197,14 @@ class AttentionGNN(nn.Module):
         """
         h = X
         for layer in self.layers:
-            h_new = layer(h, A) 
+            h_new = layer(h, A)  # [B, N, hidden]
             h = self.activation(h_new)
             h = self.dropout(h)
 
-        graph_emb = h.mean(dim=1)
+        # simple mean pooling over nodes
+        graph_emb = h.mean(dim=1)  # [B, hidden_dim]
 
-        out = self.readout_mlp(graph_emb)
+        out = self.readout_mlp(graph_emb)  # [B, out_dim]
         return out
 
 
