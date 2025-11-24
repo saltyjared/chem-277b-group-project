@@ -1,9 +1,9 @@
-from torch_geometric import Data
+from torch_geometric.data import Data, DataLoader
 import torch_geometric
 import torch
 import numpy as np
 from sklearn.model_selection import KFold
-from typing import List, Dict, Tuple, Callable
+from typing import List, Dict, Callable, Optional
 
 def normalize_tensor(tensor: torch.Tensor) -> torch.Tensor:
     """Normalize a tensor using min-max normalization."""
@@ -53,14 +53,94 @@ def evaluate_prediction(data: Data, prediction: torch.Tensor):
     unnorm = unnormalize_tensor(prediction, data.y)
 
     # 2. Extract engineering constants from original data and prediction
-    e = data.mean_E
+    e = data.mean_E.item() if isinstance(data.mean_E, torch.Tensor) else data.mean_E
     e_pred = extract_youngs_moduli(unnorm)
 
     # 3. Compute absolute error
     abs_error = abs(e - e_pred)
     return abs_error
 
-def evaluate_model(model, dataset: torch_geometric.data.Dataset):
+def ensure_batch_attribute(data_or_batch: Data) -> Data:
+    """
+    Ensure a Data or Batch object exposes a valid batch attribute.
+    """
+    batch_attr = getattr(data_or_batch, 'batch', None)
+    if batch_attr is not None and batch_attr.numel() == data_or_batch.x.size(0):
+        return data_or_batch
+
+    device = data_or_batch.x.device
+    data_or_batch.batch = torch.zeros(
+        data_or_batch.x.size(0),
+        dtype=torch.long,
+        device=device
+    )
+    return data_or_batch
+
+
+def train_model_default(
+    model,
+    train_data: List[Data],
+    val_data: List[Data],
+    epochs: int = 50,
+    lr: float = 1e-4,
+    batch_size: int = 32,
+    device: Optional[str] = None,
+    verbose: bool = False
+):
+
+    device = torch.device(device) if device else torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    model = model.to(device)
+
+    train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
+    val_loader = DataLoader(val_data, batch_size=batch_size, shuffle=False)
+
+    criterion = torch.nn.MSELoss()
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+
+    for epoch in range(epochs):
+        model.train()
+        total_train_loss = 0.0
+        train_steps = 0
+
+        for batch in train_loader:
+            batch = ensure_batch_attribute(batch.to(device))
+            optimizer.zero_grad()
+            pred = model(batch)
+            target = batch.y.view_as(pred)
+            loss = criterion(pred, target)
+            loss.backward()
+            optimizer.step()
+
+            total_train_loss += loss.item()
+            train_steps += 1
+
+        if verbose and epoch % 10 == 0:
+            avg_train_loss = total_train_loss / max(train_steps, 1)
+            print(f"Epoch {epoch}: train_loss={avg_train_loss:.6f}")
+
+        model.eval()
+        with torch.no_grad():
+            total_val_loss = 0.0
+            val_steps = 0
+            for batch in val_loader:
+                batch = ensure_batch_attribute(batch.to(device))
+                pred = model(batch)
+                target = batch.y.view_as(pred)
+                loss = criterion(pred, target)
+                total_val_loss += loss.item()
+                val_steps += 1
+
+        if verbose and epoch % 10 == 0:
+            avg_val_loss = total_val_loss / max(val_steps, 1)
+            print(f"Epoch {epoch}: val_loss={avg_val_loss:.6f}")
+
+    return model, {
+        "final_train_loss": total_train_loss / max(train_steps, 1) if train_steps else 0.0,
+        "final_val_loss": total_val_loss / max(val_steps, 1) if val_steps else 0.0,
+    }
+
+
+def evaluate_model(model, dataset: torch.utils.data.Dataset):
     """
     Evaluate a model on a given dataset by computing the average absolute error
     in Young's moduli predictions across all samples.
@@ -71,6 +151,7 @@ def evaluate_model(model, dataset: torch_geometric.data.Dataset):
 
     with torch.no_grad():
         for data in dataset:
+            data = ensure_batch_attribute(data)
             prediction = model(data)
             error = evaluate_prediction(data, prediction)
             total_error += error
@@ -83,7 +164,8 @@ def kfold_cross_validation(
     graph_data_list: List[Data],
     model_class: Callable,
     model_params: Dict,
-    train_fn: Callable,
+    train_fn: Optional[Callable] = None,
+    train_params: Optional[Dict] = None,
     n_splits: int = 5,
     random_state: int = 42,
     verbose: bool = True
@@ -93,30 +175,24 @@ def kfold_cross_validation(
     
     """
 
-    def clone_with_batch(data: Data) -> Data:
-        """
-        Return a Data object that explicitly owns a batch attribute which
-        matches the number of nodes. This prevents KeyError: 'batch' when
-        single-graph samples are passed directly into models that expect
-        data.batch.
-        """
-        batch_attr = getattr(data, 'batch', None)
-        if batch_attr is not None and batch_attr.numel() == data.x.size(0):
-            return data
+    default_train_params = {
+        "epochs": 50,
+        "lr": 1e-4,
+        "batch_size": 32,
+        "device": None,
+        "verbose": False,
+    }
+    if train_params:
+        default_train_params.update(train_params)
 
-        device = data.x.device
-        batch_tensor = torch.zeros(data.x.size(0), dtype=torch.long, device=device)
-
-        cloned = Data(
-            x=data.x,
-            edge_index=data.edge_index,
-            y=data.y,
-            batch=batch_tensor
+    effective_train_fn = train_fn
+    if effective_train_fn is None:
+        effective_train_fn = lambda model, train, val: train_model_default(
+            model,
+            train,
+            val,
+            **default_train_params,
         )
-        for key in data.keys():
-            if key not in ['x', 'edge_index', 'y', 'batch']:
-                cloned[key] = data[key]
-        return cloned
 
     kfold = KFold(n_splits=n_splits, shuffle=True, random_state=random_state)
     fold_scores = []
@@ -131,7 +207,7 @@ def kfold_cross_validation(
             print(f"{'='*50}")
         
         train_data = [graph_data_list[i] for i in train_indices]
-        val_data = [clone_with_batch(graph_data_list[i]) for i in val_indices]
+        val_data = [graph_data_list[i] for i in val_indices]
         
         if verbose:
             print(f"Train size: {len(train_data)}, Validation size: {len(val_data)}")
@@ -139,7 +215,7 @@ def kfold_cross_validation(
         # Initialize model for this fold
         model = model_class(**model_params)
         
-        trained_model, metrics = train_fn(model, train_data, val_data)
+        trained_model, metrics = effective_train_fn(model, train_data, val_data)
         fold_models.append(trained_model)
         
         val_score = evaluate_model(trained_model, val_data)
