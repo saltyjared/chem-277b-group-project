@@ -29,18 +29,27 @@ document.addEventListener('DOMContentLoaded', function() {
         const diagSelector = `.node[data-row="${col}"][data-col="${row}"]`;
         const diagNode = graph.querySelector(diagSelector);
 
-        // Toggle highlight for both nodes
+        const isDiagonal = row === col;
         const isSelected = node.classList.contains('selected');
+
         if (isSelected) {
             node.classList.remove('selected');
-            if (diagNode) diagNode.classList.remove('selected');
+            if (diagNode && !isDiagonal) diagNode.classList.remove('selected');
             // Remove edge from set
-            edges.delete(`[${row},${col}]\n[${col},${row}]`);
+            if (isDiagonal) {
+                edges.delete(`[${row},${col}]`);
+            } else {
+                edges.delete(`[${row},${col}]\n[${col},${row}]`);
+            }
         } else {
             node.classList.add('selected');
-            if (diagNode) diagNode.classList.add('selected');
+            if (diagNode && !isDiagonal) diagNode.classList.add('selected');
             // Add edge to set
-            edges.add(`[${row},${col}]\n[${col},${row}]`);
+            if (isDiagonal) {
+                edges.add(`[${row},${col}]`);
+            } else {
+                edges.add(`[${row},${col}]\n[${col},${row}]`);
+            }
         }
         updateEdgeList();
     }
