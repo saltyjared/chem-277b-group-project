@@ -15,21 +15,45 @@
     <div class="nodeInput">
         <div class="nodeLeft">
             <h3>Input node group connections:</h3>
-            <div class="nodeGraph"></div>
+            <div class="nodeGraphContainer">
+                <div class="topIndices"></div>
+                <div class="leftIndices"></div>
+                <div class="nodeGraph"></div>
+            </div>
+
             <div class="reset">
                 <button class="resetButton">Reset</button>
             </div>
         </div>
 
-        <div class="nodeRight">
+    <div class="nodeRight">
+        <div class="edgeListContainer">
             <h3>Input node edge list:</h3>
             <textarea class="edgeList" rows="15" cols="30" readonly></textarea>
-            <div class="rhoInput">
-                <h3>Input ρ (relative density):</h3>
-                <input type="number" class="rhoValue" step="0.15" min="0.15" max="0.3" value="0.15">
+        </div>
+
+        <div class="rhoInput">
+            <h3>Input ρ (relative density):</h3>
+            <input type="number" class="rhoValue" step="0.15" min="0.15" max="0.3" value="0.15">
+        </div>
+
+        <div class="complianceInput">
+            <h3>Input compliance matrix range:</h3>
+            <div class="complianceRow">
+                <h4>Min:</h4>
+                <input type="text" inputmode="numeric" class="complianceMin" value="-5">
+                <h4>Max:</h4>
+                <input type="text" inputmode="numeric" class="complianceMax" value="30">
             </div>
         </div>
+
+        <div class="predict">
+            <button class="predictButton">Predict material properties</button>
+        </div>
     </div>
+
+    <div class="results"></div>
+
     <script src="{{ url_for('static', filename='script.js') }}"></script>
 </body>
 </html>
