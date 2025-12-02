@@ -18,6 +18,7 @@
 │   └── gnn_mat_prop.ipynb - Training and testing pipeline
 ├── presentation.pdf - Final presentation
 ├── pyproject.toml
+├── report.pdf
 ├── README.md
 ├── scripts
 └── utils/
@@ -29,6 +30,9 @@
 ## Interactive Web Application
 ![Web app preview](images/web_app_preview.png)
 To run the web application, simply run `./run_app.py` and either Ctrl+Click or paste the application server into your web browser.
+
+## Testing
+Run `./test.sh` to run tests on the utility functions used during the training/testing portion of model development.
 
 
 ## Contributors:
