@@ -17,10 +17,9 @@
 │   ├── EDA.ipynb - Exploratory data analysis
 │   └── gnn_mat_prop.ipynb - Training and testing pipeline
 ├── presentation.pdf - Final presentation
-├── pyproject.toml
-├── report.pdf
+├── pyproject.toml - Contains dependency list
+├── report.pdf - Final report
 ├── README.md
-├── scripts
 └── utils/
     ├── evaluation.py - Functions for evaluation (post-training)
     ├── processing.py - Functions for preparing graph data
