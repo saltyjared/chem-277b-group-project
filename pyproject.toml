@@ -5,9 +5,12 @@ description = "Final project for Chem 277B: Machine Learning Algorithms (Fall 20
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+    "black>=25.11.0",
+    "flask>=3.1.2",
     "matplotlib>=3.10.7",
     "numpy>=2.3.5",
     "pandas>=2.3.3",
+    "pytest>=9.0.1",
     "scikit-learn>=1.7.2",
     "seaborn>=0.13.2",
     "torch>=2.9.1",
